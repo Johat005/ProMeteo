@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors
+.vscode/
+.idea/
+
+# CDS credentials (never commit real keys)
+.cdsapirc
+config/.cdsapirc
+
+# Generated data and outputs (keep directory placeholders)
+data/**
+!data/.gitkeep
+output/**
+!output/.gitkeep
+logs/
+
+# OS
+.DS_Store
+Thumbs.db

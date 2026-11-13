@@ -1,0 +1,92 @@
+# ProMeteo model catalog.
+#
+# Sprint 1 uses a single model: ECMWF SEAS5, system 51.
+# Adding a model should require only a new entry under `models`; the converter
+# must not need an `if` for a new centre or system.
+
+# Catalog schema version and last review date (for traceability).
+version: 1
+updated_at: "2026-11-07"
+
+models:
+  # Stable model id used by --model and by the cache directory name.
+  ecmwf-seas5:
+    # C3S identifiers: originating centre, system and dataset name.
+    centre: ecmwf
+    system: "51"
+    dataset: seasonal-monthly-single-levels
+
+    # Product types differ by target:
+    # - hindcast keeps the 25 ensemble members for calibration;
+    # - forecast is already averaged by CDS (51 members).
+    product_type:
+      forecast: ensemble_mean
+      hindcast: monthly_mean
+
+    # Canonical variable -> CDS name, NetCDF name, CPT field and units.
+    # The canonical key is what the rest of ProMeteo uses internally.
+    variables:
+      t2m:
+        cds: 2m_temperature
+        netcdf: t2m
+        cpt_field: t2m
+        units_in: K
+        units_out: C
+      tprate:
+        cds: total_precipitation
+        netcdf: tprate
+        cpt_field: prate
+        units_in: m s-1
+        units_out: mm/month
+      u10:
+        cds: 10m_u_component_of_wind
+        netcdf: u10
+        cpt_field: u10
+        units_in: m s-1
+        units_out: m s-1
+      v10:
+        cds: 10m_v_component_of_wind
+        netcdf: v10
+        cpt_field: v10
+        units_in: m s-1
+        units_out: m s-1
+      msnsrf:
+        cds: surface_solar_radiation
+        netcdf: msnsrf
+        cpt_field: msnsrf
+        units_in: W m-2
+        units_out: W m-2
+
+    # Monthly leads exposed by the CDS API in Sprint 1.
+    leads: [1, 2, 3, 4, 5, 6]
+
+    # Hindcast is the fixed historical reforecast period.
+    hindcast_years: [1981, 2016]
+
+    # Operational forecast range is a catalog snapshot and should be reviewed
+    # when the available period advances.
+    forecast_years: [2017, 2026]
+
+    # Ensemble sizes used by the canonical layer to document provenance.
+    members_hindcast: 25
+    members_forecast: 51
+
+    # Expected source grid metadata.  The real grid is always read from the
+    # file; these values are used by diagnostics, not to force a grid.
+    grid:
+      nlat: 180
+      nlon: 360
+      lat_order: descending
+      lon_convention: "0-360"
+
+    # Publication schedule used by availability messages (ECMWF: day 6, 12 UTC).
+    release:
+      day: 6
+      time: "12:00Z"
+
+    # C3S convention: forecastMonth=1 is the initialization month, so
+    # cpt:T = init + (forecastMonth - 1).
+    time_convention: c3s_forecastmonth_1_is_init
+
+    # Human-readable provenance for the catalog entry.
+    source: "C3S seasonal-monthly-single-levels; ECMWF SEAS5 system 51"

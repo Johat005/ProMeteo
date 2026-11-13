@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Launch ProMeteo without installing it or setting PYTHONPATH.
+
+Usage from the project root:
+
+    python3 prometeo list-models      # Linux/macOS
+    py prometeo list-models           # Windows
+    python3 prometeo configure
+    python3 prometeo download --dry-run
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parent
+_SRC = _ROOT / "src"
+
+
+def _venv_python() -> Path | None:
+    """Return the project virtualenv interpreter, when it exists."""
+    for candidate in (
+        _ROOT / ".venv" / "bin" / "python",
+        _ROOT / ".venv" / "Scripts" / "python.exe",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _reexec_in_venv() -> None:
+    """Re-exec inside ``.venv`` so the client does not need to activate it."""
+    # Allow advanced users and tests to force the current interpreter.
+    if os.environ.get("PROMETEO_NO_VENV") == "1":
+        return
+
+    venv_python = _venv_python()
+    if venv_python is None:
+        return
+
+    venv_root = (_ROOT / ".venv").resolve()
+    if Path(sys.prefix).resolve() == venv_root:
+        return
+
+    try:
+        os.execv(
+            str(venv_python),
+            [str(venv_python), str(Path(__file__).resolve()), *sys.argv[1:]],
+        )
+    except OSError:
+        # If re-exec fails, continue with the current interpreter; the import
+        # below will report any missing dependency clearly.
+        return
+
+
+def main() -> int:
+    """Run the CLI, adding ``src/`` to the import path first."""
+    _reexec_in_venv()
+    sys.path.insert(0, str(_SRC))
+
+    try:
+        from prometeo.cli.main import main as cli_main
+    except ImportError as exc:
+        missing = getattr(exc, "name", None) or str(exc) or "una dependencia"
+        if "prometeo" in missing:
+            message = (
+                "No se pudo importar el paquete 'prometeo'.\n"
+                f"Verifique que exista: {_SRC / 'prometeo'}"
+            )
+        else:
+            message = (
+                f"Falta la dependencia de Python: {missing}\n"
+                "Instale las dependencias con el Python del entorno:\n"
+                "  python -m pip install -e .\n"
+                "En Linux/macOS puede ser: python3 -m pip install -e ."
+            )
+        print(message, file=sys.stderr)
+        return 1
+
+    return int(cli_main())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
