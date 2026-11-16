@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from prometeo.shared.errors import CPTError
+from prometeo.shared.timeutils import parse_year_month
 
 NAMESPACE = "xmlns:cpt=http://iri.columbia.edu/CPT/v10/"
 TAG_PATTERN = re.compile(r"cpt:([A-Za-z0-9_]+)=([^,]+)")
@@ -75,6 +76,22 @@ def _add_issue(
     issues.append(
         CPTIssue(code=code, line=line, message=message, action=action)
     )
+
+
+def _valid_period(value: str) -> bool:
+    """Return True for a valid YYYY-MM or YYYY-MM/YYYY-MM period."""
+    if not _PERIOD_PATTERN.match(value):
+        return False
+    try:
+        if "/" in value:
+            start, end = value.split("/", 1)
+            parse_year_month(start)
+            parse_year_month(end)
+        else:
+            parse_year_month(value)
+    except Exception:
+        return False
+    return True
 
 
 def _parse_numeric_tokens(
@@ -176,9 +193,61 @@ def validate_text(text: str, *, source: str = "<string>") -> CPTValidationReport
                 action="Use cpt:nfields=1.",
             )
 
+    # Third line: cpt:T followed by every target period, in block order.
+    if len(lines) < 3:
+        _add_issue(
+            report.issues,
+            code="date-list",
+            line=3,
+            message="Falta la línea cpt:T con la lista de fechas.",
+            action="Agregue cpt:T <fecha1> <fecha2> ... después de cpt:nfields.",
+        )
+        return report
+
+    date_tokens = lines[2].strip().split()
+    if not date_tokens or date_tokens[0] != "cpt:T":
+        _add_issue(
+            report.issues,
+            code="date-list",
+            line=3,
+            message="La tercera línea debe empezar por cpt:T.",
+            action="Agregue cpt:T <fecha1> <fecha2> ... después de cpt:nfields.",
+        )
+        return report
+
+    expected_periods = date_tokens[1:]
+    if not expected_periods:
+        _add_issue(
+            report.issues,
+            code="date-list",
+            line=3,
+            message="La línea cpt:T no contiene fechas.",
+            action="Incluya al menos una fecha en formato YYYY-MM.",
+        )
+        return report
+
+    for period in expected_periods:
+        if not _valid_period(period):
+            _add_issue(
+                report.issues,
+                code="date-list-period",
+                line=3,
+                message=f"Fecha inválida en cpt:T: {period!r}.",
+                action="Use YYYY-MM o YYYY-MM/YYYY-MM.",
+            )
+
+    if len(set(expected_periods)) != len(expected_periods):
+        _add_issue(
+            report.issues,
+            code="date-list-duplicate",
+            line=3,
+            message="La línea cpt:T contiene fechas duplicadas.",
+            action="Cada fecha debe aparecer una sola vez.",
+        )
+
     # Parse blocks.  Each block starts with a line containing cpt:T.
     seen_periods: set[str] = set()
-    index = 2
+    index = 3
     while index < len(lines):
         header = lines[index].strip()
         if not header:
@@ -214,7 +283,23 @@ def validate_text(text: str, *, source: str = "<string>") -> CPTValidationReport
             break
 
         period = tags["T"]
-        if not _PERIOD_PATTERN.match(period):
+        block_index = report.blocks
+        if block_index < len(expected_periods):
+            expected_period = expected_periods[block_index]
+            if period != expected_period:
+                _add_issue(
+                    report.issues,
+                    code="date-list-mismatch",
+                    line=index + 1,
+                    message=(
+                        f"cpt:T={period} no coincide con la fecha "
+                        f"{expected_period} de la línea cpt:T."
+                    ),
+                    action=(
+                        "Mantenga el mismo orden en la línea cpt:T y en los bloques."
+                    ),
+                )
+        if not _valid_period(period):
             _add_issue(
                 report.issues,
                 code="period",
@@ -320,6 +405,18 @@ def validate_text(text: str, *, source: str = "<string>") -> CPTValidationReport
             break
 
         report.blocks += 1
+
+    if report.blocks != len(expected_periods):
+        _add_issue(
+            report.issues,
+            code="date-count",
+            line=3,
+            message=(
+                f"La línea cpt:T declara {len(expected_periods)} fecha(s) "
+                f"pero se encontraron {report.blocks} bloque(s)."
+            ),
+            action="Asegúrese de que cada fecha tenga su bloque de datos.",
+        )
 
     return report
 

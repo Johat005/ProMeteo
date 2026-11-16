@@ -134,6 +134,26 @@ En Windows el archivo es `C:\Users\<usuario>\.cdsapirc`
 (`%USERPROFILE%\.cdsapirc`). Para variables en PowerShell use
 `$env:CDSAPI_KEY = "..."`; en `cmd.exe`, `set CDSAPI_KEY=...`.
 
+### Progreso de descarga
+
+En una terminal interactiva, `download` y la auto-descarga de `convert`
+muestran el estado de la solicitud de CDS y una barra con bytes, porcentaje,
+velocidad y tiempo estimado. La barra se escribe en **stderr**, así que `--json`
+sigue produciendo JSON limpio en stdout.
+
+Para desactivarla:
+
+```bash
+PROMETEO_PROGRESS=0 python3 prometeo download ...
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$env:PROMETEO_PROGRESS = "0"
+py prometeo download ...
+```
+
 ---
 
 ## 4. Recomendación: descargue primero, convierta después
@@ -619,8 +639,10 @@ Está cargando `_z.cpt` como entrenamiento. Use `_x.cpt` para entrenamiento y
 
 ### “CPT+ se cierra automáticamente”
 
-El archivo es demasiado grande para CPT+. Use una región más pequeña o reduzca
-los plazos (`--leads 1`). No use el archivo global de 109 MB en CPT+.
+Si el archivo se generó con una versión anterior de ProMeteo, regenérelo: faltaba
+la línea obligatoria `cpt:T <fechas>` del formato CPT v10. Las versiones actuales
+la incluyen. Si el archivo es enorme, use una región más pequeña o reduzca los
+plazos (`--leads 1`).
 
 ### “CDS devolvió un ZIP con varios NetCDF”
 

@@ -39,10 +39,10 @@ def _simple_canonical(
     periods: tuple[str, ...] = ("2020-01", "2020-02", "2020-03"),
     *,
     longitude: tuple[float, ...] = (0.0,),
-    target_latitude: float = 0.0,
+    latitudes: tuple[float, ...] = (0.0,),
 ) -> CanonicalDataset:
     """Build a valid canonical dataset directly, without NetCDF input."""
-    shape = (len(periods), 1, len(longitude))
+    shape = (len(periods), len(latitudes), len(longitude))
     data = xr.Dataset(
         {
             "t2m": (
@@ -60,7 +60,7 @@ def _simple_canonical(
                 ),
             ),
             "lead": ("target_period", np.arange(1, len(periods) + 1)),
-            "latitude": [target_latitude],
+            "latitude": list(latitudes),
             "longitude": list(longitude),
         },
     )
@@ -100,7 +100,7 @@ class BuildForecastTests(unittest.TestCase):
                     list(canonical.data["longitude"].values),
                     [0.5, 1.5, 2.5, 3.5],
                 )
-                # Latitude order is preserved (CDS is descending).
+                # Latitude is normalized to descending (north -> south).
                 self.assertEqual(
                     list(canonical.data["latitude"].values), [3.5, 2.5, 1.5]
                 )
@@ -138,6 +138,30 @@ class BuildForecastTests(unittest.TestCase):
                 self.assertEqual(
                     list(canonical.data["longitude"].values),
                     [-9.5, -8.5, -7.5, -6.5],
+                )
+            finally:
+                raw.close()
+
+    def test_ascending_latitude_is_normalized_to_descending(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_forecast(
+                Path(tmp) / "forecast.nc",
+                leads=(1,),
+                latitudes=(1.5, 2.5, 3.5),
+            )
+            request = ReadRequest(files=(path,), variables=("t2m",), leads=(1,))
+            raw = read_netcdf(request)
+            try:
+                canonical = build_canonical(
+                    raw,
+                    _model(),
+                    request,
+                    target="forecast",
+                    reference_month=YearMonth(2026, 11),
+                )
+                validate_canonical(canonical)
+                self.assertEqual(
+                    list(canonical.data["latitude"].values), [3.5, 2.5, 1.5]
                 )
             finally:
                 raw.close()
@@ -370,6 +394,11 @@ class ValidationTests(unittest.TestCase):
 
     def test_non_monotonic_longitude_is_rejected(self) -> None:
         canonical = _simple_canonical(longitude=(0.0, -1.0))
+        with self.assertRaises(CanonicalError):
+            validate_canonical(canonical)
+
+    def test_ascending_latitude_is_rejected(self) -> None:
+        canonical = _simple_canonical(latitudes=(1.0, 2.0))
         with self.assertRaises(CanonicalError):
             validate_canonical(canonical)
 

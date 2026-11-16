@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -132,6 +134,28 @@ def load_credentials() -> tuple[str | None, str | None]:
     return url or file_url, key or file_key
 
 
+def _resolve_progress(progress: bool | None) -> bool:
+    """Resolve whether CDS progress output should be enabled.
+
+    Precedence: explicit argument, ``PROMETEO_PROGRESS``, terminal detection.
+    """
+    if progress is not None:
+        return bool(progress)
+
+    value = os.environ.get("PROMETEO_PROGRESS")
+    if value is not None:
+        text = value.strip().lower()
+        if text in {"0", "false", "no", "off"}:
+            return False
+        if text in {"1", "true", "yes", "on"}:
+            return True
+
+    try:
+        return bool(sys.stderr.isatty())
+    except Exception:
+        return False
+
+
 class CDSClient:
     """Small wrapper around ``cdsapi.Client`` with a stable test seam."""
 
@@ -142,6 +166,7 @@ class CDSClient:
         key: str | None = None,
         timeout: int = 120,
         max_retries: int = 3,
+        progress: bool | None = None,
     ) -> None:
         """Check that cdsapi is installed and build the client."""
         # Fail with an actionable message instead of an ImportError traceback.
@@ -169,17 +194,39 @@ class CDSClient:
         self.url = resolved_url or _DEFAULT_URL
         self.timeout = timeout
         self.max_retries = max(1, int(max_retries))
+        self.progress = _resolve_progress(progress)
+        # The callback sets this event when CDS starts downloading the result,
+        # which stops the "still waiting" ticker.
+        self._download_started = threading.Event()
+        self._progress_lock = threading.Lock()
+        self._wait_line_active = False
+        self._wait_line_width = 0
+        try:
+            self._interactive = bool(sys.stderr.isatty())
+        except Exception:
+            self._interactive = False
 
         # Bound cdsapi's own retry loop.  The service performs its own retries;
         # cdsapi's default is 500 attempts with 120-second sleeps, which is far
         # too long for an interactive CLI.
         options: dict[str, object] = {
-            "quiet": True,
-            "progress": False,
+            "quiet": not self.progress,
+            "progress": self.progress,
             "timeout": timeout,
             "retry_max": 1,
             "sleep_max": 8,
         }
+        if self.progress:
+            # cdsapi only enables its tqdm bar when quiet=False; these
+            # callbacks replace its logger output with concise status lines.
+            options.update(
+                {
+                    "info_callback": self._on_cds_info,
+                    "warning_callback": self._on_cds_warning,
+                    "error_callback": self._on_cds_error,
+                    "debug_callback": self._on_cds_debug,
+                }
+            )
         if resolved_url:
             options["url"] = resolved_url
         if resolved_key:
@@ -195,6 +242,87 @@ class CDSClient:
                 hint=str(exc),
             ) from exc
 
+    @staticmethod
+    def _format_cds_message(message: object, args: tuple[object, ...]) -> str:
+        """Format a cdsapi log message with its %-style arguments."""
+        text = str(message)
+        if args:
+            try:
+                text = text % args
+            except Exception:
+                text = " ".join(str(part) for part in (message, *args))
+        return text
+
+    def _on_cds_info(self, message: object, *args: object) -> None:
+        """Print concise CDS status lines and detect the download start."""
+        text = self._format_cds_message(message, args)
+        lowered = text.lower()
+        if "request is complete" in lowered or "downloading" in lowered:
+            self._download_started.set()
+        self._write_status(f"CDS: {text}")
+
+    def _on_cds_warning(self, message: object, *args: object) -> None:
+        text = self._format_cds_message(message, args)
+        self._write_status(f"CDS aviso: {text}")
+
+    def _on_cds_error(self, message: object, *args: object) -> None:
+        text = self._format_cds_message(message, args)
+        self._write_status(f"CDS error: {text}")
+
+    def _on_cds_debug(self, message: object, *args: object) -> None:
+        # Debug output would interleave with the progress bar; keep it quiet.
+        return
+
+    def _clear_wait_locked(self) -> None:
+        """Clear the in-place wait line. Caller must hold the lock."""
+        if self._wait_line_active and self._interactive:
+            sys.stderr.write("\r" + " " * self._wait_line_width + "\r")
+            sys.stderr.flush()
+        self._wait_line_active = False
+
+    def _clear_wait(self) -> None:
+        """Clear the in-place wait line, if any."""
+        with self._progress_lock:
+            self._clear_wait_locked()
+
+    def _write_status(self, text: str) -> None:
+        """Write one status line, replacing the wait line if it is active."""
+        with self._progress_lock:
+            self._clear_wait_locked()
+            print(text, file=sys.stderr, flush=True)
+
+    def _write_wait(self, elapsed: int) -> None:
+        """Update the wait line in place."""
+        text = f"CDS: esperando respuesta de CDS... {elapsed} s"
+        with self._progress_lock:
+            if not self._interactive or self._download_started.is_set():
+                return
+            padding = " " * max(0, self._wait_line_width - len(text))
+            sys.stderr.write("\r" + text + padding)
+            sys.stderr.flush()
+            self._wait_line_width = len(text)
+            self._wait_line_active = True
+
+    def _wait_ticker(
+        self,
+        started: threading.Event,
+        stop: threading.Event,
+        interval: float = 5.0,
+    ) -> None:
+        """Print elapsed queue time until CDS starts downloading."""
+        # Without a terminal, carriage returns are noise; leave one message.
+        if not self._interactive:
+            self._write_status("CDS: esperando respuesta de CDS...")
+            return
+
+        start = time.monotonic()
+        while not stop.is_set():
+            if started.wait(interval):
+                return
+            if started.is_set() or stop.is_set():
+                return
+            self._write_wait(int(time.monotonic() - start))
+
     def retrieve(
         self, dataset: str, payload: Mapping[str, object], target: Path
     ) -> Path:
@@ -202,12 +330,27 @@ class CDSClient:
         destination = Path(target)
         ensure_directory(destination.parent)
 
+        operation_start = time.monotonic()
         last_error: Exception | None = None
 
         # Retry transient failures with a small exponential backoff.
         for attempt in range(self.max_retries):
             # Remove any stale partial result before retrying.
             destination.unlink(missing_ok=True)
+
+            # A fresh event per attempt so the wait ticker follows this request.
+            started = threading.Event()
+            stop = threading.Event()
+            self._download_started = started
+            ticker: threading.Thread | None = None
+            if self.progress:
+                ticker = threading.Thread(
+                    target=self._wait_ticker,
+                    args=(started, stop),
+                    daemon=True,
+                )
+                ticker.start()
+
             try:
                 # cdsapi writes the result directly to the target path.
                 self._client.retrieve(dataset, dict(payload), str(destination))
@@ -218,6 +361,9 @@ class CDSClient:
                         "CDS no generó un archivo de salida válido.",
                         hint="Revise la petición o vuelva a intentarlo.",
                     )
+                if self.progress:
+                    elapsed = time.monotonic() - operation_start
+                    self._write_status(f"CDS: listo en {elapsed:.1f} s")
                 return destination
             except DownloadError:
                 # Our own validation errors are not transient; do not retry.
@@ -227,6 +373,12 @@ class CDSClient:
                 if attempt + 1 < self.max_retries:
                     # 1 s, 2 s, 4 s, capped at 8 s.
                     time.sleep(min(2**attempt, 8))
+            finally:
+                stop.set()
+                started.set()
+                if ticker is not None:
+                    ticker.join(timeout=1.0)
+                self._clear_wait()
 
         raise DownloadError(
             f"No se pudo descargar el dataset '{dataset}' desde CDS.",

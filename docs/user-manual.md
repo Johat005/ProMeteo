@@ -361,6 +361,28 @@ Ejemplo de archivos:
 
 Con `--separate`, se genera un `.nc` y un `.json` por variable y producto.
 
+### 7.9 Progreso de descarga
+
+En una terminal interactiva, `download` y la auto-descarga de `convert` muestran:
+
+- líneas `CDS:` con el estado de la solicitud mientras está en cola;
+- una barra con bytes, porcentaje, velocidad y tiempo estimado;
+- una línea final `CDS: listo en N s`.
+
+La barra se escribe en **stderr**, así que `--json` sigue produciendo JSON limpio
+en stdout. Para desactivarla:
+
+```bash
+PROMETEO_PROGRESS=0 python3 prometeo download ...
+```
+
+En Windows PowerShell:
+
+```powershell
+$env:PROMETEO_PROGRESS = "0"
+py prometeo download ...
+```
+
 ---
 
 ## 8. `inspect`

@@ -339,12 +339,18 @@ def build_canonical(
         converted.attrs["canonical_variable"] = name
         data[name] = converted
 
-    # 8. Normalize longitude to -180..180 ascending.  Latitude keeps the
-    #    convention/order found in the file.
+    # 8. Normalize longitude to -180..180 ascending and latitude to
+    #    descending (north -> south).  Both X and Z must use the same row order
+    #    because CPT+ compares their latitude coordinates.
     lon_values = np.asarray(data["longitude"].values)
     normalized_lon, order = _normalize_longitudes(lon_values)
     data = data.isel(longitude=order)
     data = data.assign_coords(longitude=normalized_lon)
+
+    lat_values = np.asarray(data["latitude"].values, dtype=float)
+    if lat_values.size > 1 and not np.all(np.diff(lat_values) < 0):
+        lat_order = np.argsort(lat_values, kind="stable")[::-1]
+        data = data.isel(latitude=lat_order)
 
     # 9. Keep only canonical coordinates.
     data = _drop_extra_coordinates(data)
@@ -461,16 +467,16 @@ def validate_canonical(canonical: CanonicalDataset) -> None:
                 f"La coordenada '{coordinate}' no coincide con target_period."
             )
 
-    # Latitude: 1-D, bounded, monotonic in one direction.
+    # Latitude: 1-D, bounded, descending (north -> south), unique.
     latitude = np.asarray(data["latitude"].values, dtype=float).reshape(-1)
     if latitude.size == 0:
         raise CanonicalError("La latitud canónica está vacía.")
     if np.any(latitude < -90.0) or np.any(latitude > 90.0):
         raise CanonicalError("La latitud canónica está fuera de -90..90.")
-    if latitude.size > 1:
-        diffs = np.diff(latitude)
-        if not (np.all(diffs > 0) or np.all(diffs < 0)):
-            raise CanonicalError("La latitud canónica no es monótona.")
+    if latitude.size > 1 and not np.all(np.diff(latitude) < 0):
+        raise CanonicalError(
+            "La latitud canónica debe ser descendente (norte a sur)."
+        )
     if len(set(latitude.tolist())) != latitude.size:
         raise CanonicalError("La latitud canónica contiene duplicados.")
 

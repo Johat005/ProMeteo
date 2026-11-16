@@ -121,6 +121,13 @@ def _render_lines(
     yield NAMESPACE
     yield "cpt:nfields=1"
 
+    # CPT v10 requires a third header line listing every target period.  CPT+
+    # uses it to build the file's time axis; without it, it tries to interpret
+    # the first block header as dates and crashes in its season-labeling code.
+    if periods.size == 0:
+        raise CPTError("El CPT no contiene periodos objetivo.")
+    yield "cpt:T " + " ".join(_format_month(period) for period in periods)
+
     # The longitude line is identical in every block.
     longitude_line = "  " + " ".join(
         _format_coordinate(value) for value in longitudes

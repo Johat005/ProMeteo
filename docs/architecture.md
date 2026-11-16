@@ -113,7 +113,7 @@ dims      target_period, latitude, longitude
 coords    target_period   "YYYY-MM" por cada combinación init_time × lead
           init_time       fecha de inicialización original
           lead            valor 1..6 de forecastMonth
-          latitude        tal como viene en el archivo (orden documentado)
+          latitude        descendente, norte → sur (normalizada)
           longitude       -180..180 ascendente
 variables t2m [K], tprate [m s-1], u10/v10 [m s-1], msnsrf [W m-2]
 attrs     model, centre, system, product_type, time_convention,
@@ -130,6 +130,8 @@ Decisiones implementadas:
 - `forecastMonth=1` corresponde al mes de inicialización
   (`c3s_forecastmonth_1_is_init`).
 - La longitud se normaliza a `-180..180` y se ordena de forma ascendente.
+- La latitud se normaliza a orden descendente (norte → sur) para que X y Z
+  tengan exactamente el mismo orden de filas en CPT+.
 - `cpt/` es el único lugar donde se aplican unidades CPT y `-999`.
 - `download` solicita por defecto los plazos 1..6; `--leads`,
   `--hindcast-leads` y `--forecast-leads` permiten cambiarlos.

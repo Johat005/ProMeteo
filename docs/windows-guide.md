@@ -174,6 +174,29 @@ Para salir del entorno:
 deactivate
 ```
 
+### 3.6 Progreso de descarga
+
+En una terminal interactiva, `py prometeo download` y la auto-descarga de
+`py prometeo convert` muestran:
+
+- líneas `CDS:` con el estado de la solicitud mientras está en cola;
+- una barra con bytes, porcentaje, velocidad y tiempo estimado;
+- una línea final `CDS: listo en N s`.
+
+La barra se escribe en **stderr**, así que `--json` sigue produciendo JSON limpio
+en stdout. Para desactivarla:
+
+```powershell
+$env:PROMETEO_PROGRESS = "0"
+py prometeo download ...
+```
+
+Para volver a activarla en la misma sesión:
+
+```powershell
+$env:PROMETEO_PROGRESS = "1"
+```
+
 ---
 
 ## 4. Credenciales de CDS

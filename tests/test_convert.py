@@ -39,6 +39,15 @@ def _write_pair(root: Path, *, forecast_units: str = "K") -> tuple[Path, Path]:
     return hindcast, forecast
 
 
+def _first_data_latitude(path: Path) -> str:
+    """Return the first data row's latitude token from a CPT file."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("cpt:field="):
+            return lines[index + 2].split()[0]
+    raise AssertionError(f"No CPT block found in {path}")
+
+
 class ConvertCommandTests(unittest.TestCase):
     """Verify local-file conversion, partitions and the diagnostic gate."""
 
@@ -75,6 +84,46 @@ class ConvertCommandTests(unittest.TestCase):
                 path = Path(output["path"])
                 self.assertTrue(path.is_file())
                 self.assertTrue(validate_cpt(path).valid)
+
+    def test_latitude_order_matches_between_x_and_z(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Deliberately opposite latitude orders in the two source files.
+            hindcast = write_hindcast(
+                root / "hindcast.nc",
+                inits=("1981-11-01",),
+                leads=(1,),
+                latitudes=(3.5, 2.5, 1.5),
+            )
+            forecast = write_forecast(
+                root / "forecast.nc",
+                init="2026-11-01",
+                leads=(1,),
+                latitudes=(1.5, 2.5, 3.5),
+            )
+            out = root / "out"
+            code, _stdout, stderr = run_cli(
+                [
+                    "convert",
+                    "--hindcast-file",
+                    str(hindcast),
+                    "--forecast-file",
+                    str(forecast),
+                    "--variables",
+                    "t2m",
+                    "--hindcast-leads",
+                    "1",
+                    "--forecast-leads",
+                    "1",
+                    "--output-dir",
+                    str(out),
+                ]
+            )
+            self.assertEqual(code, 0, stderr)
+            x_path = next(out.glob("*_x_*.cpt"))
+            z_path = next(out.glob("*_z_*.cpt"))
+            self.assertEqual(_first_data_latitude(x_path), "3.50")
+            self.assertEqual(_first_data_latitude(z_path), "3.50")
 
     def test_convert_x_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -218,6 +267,9 @@ class ConvertCommandTests(unittest.TestCase):
             self.assertEqual(code, 0, stderr)
             cpt = next(out.glob("*_x_*.cpt"))
             text = cpt.read_text(encoding="utf-8")
+            lines = text.splitlines()
+            # The mandatory CPT date-list line must precede the first block.
+            self.assertEqual(lines[2], "cpt:T 1981-12 1982-01")
             self.assertIn("cpt:T=1981-12", text)
             self.assertIn("cpt:T=1982-01", text)
 

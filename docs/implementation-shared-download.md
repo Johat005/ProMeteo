@@ -426,7 +426,8 @@ tprate:
    - `u10`/`v10` → m s-1 (accepts m/s, km/h, knots);
    - `msnsrf` → W m-2 (accepts W m-2 or kW m-2).
 6. Normalizes longitude to `-180..180` ascending (`>180` becomes `value - 360`),
-   reordering the data with the coordinate.
+   reordering the data with the coordinate. Latitude is normalized to
+   descending (north → south) so X and Z always share the same row order.
 7. Stacks `init_time × lead` into `target_period` and derives each label with
    `derive_target_month` (`cpt:T = init + (forecastMonth - 1)`).
 8. Records provenance: model, centre, system, product type, reference month,
@@ -434,7 +435,8 @@ tprate:
 9. Provides `partition_canonical()` (X before cutoff, Z from cutoff) and
    `select_partition()` (`both`, `x`, `z`).
 10. `validate_canonical()` enforces canonical dims/order, unique `YYYY-MM`
-    periods, init/lead alignment, bounded monotonic grids and declared units.
+    periods, init/lead alignment, bounded grids (latitude descending,
+    longitude ascending) and declared units.
 
 ### Why
 
@@ -477,8 +479,8 @@ may need chunking or per-slice processing.
 
 `cpt/writer.py`:
 
-- `render_cpt()` renders the namespace, `cpt:nfields=1` and one block per target
-  period.
+- `render_cpt()` renders the namespace, `cpt:nfields=1`, the mandatory
+  `cpt:T <date> <date> ...` date-list line, and one block per target period.
 - Each block header contains `cpt:field`, `cpt:S`, `cpt:T`, `cpt:nrow`,
   `cpt:ncol`, `cpt:row=Y`, `cpt:col=X`, `cpt:units` and `cpt:missing=-999`.
 - The longitude line is repeated per block; each row is
@@ -490,9 +492,11 @@ may need chunking or per-slice processing.
 
 `cpt/validator.py`:
 
-- Checks the exact namespace, `cpt:nfields=1`, required tags, unique `cpt:T`,
-  `cpt:missing=-999`, non-empty units, positive `nrow`/`ncol`, the longitude
-  line width, every data-row width, numeric/finite values and truncation.
+- Checks the exact namespace, `cpt:nfields=1`, the mandatory `cpt:T` date-list
+  line, required tags, unique `cpt:T`, `cpt:missing=-999`, non-empty units,
+  positive `nrow`/`ncol`, the longitude line width, every data-row width,
+  numeric/finite values and truncation.
+- Verifies that the date-list count and order match the data blocks.
 - `CPTValidationReport.valid` and `to_dict()` provide machine-readable results.
 - `validate_cpt(path)` validates a file from disk.
 
@@ -1138,13 +1142,14 @@ decisions and prevent accidental changes from silently altering CPT calibration.
   February, NaN → `-999`, return tuple.
 - Formatting: month normalization, 4-decimal values, exact `-999`, rejection of
   infinite values.
-- Rendering: namespace, `nfields=1`, block count, `cpt:T`/`cpt:S`, dimensions,
-  units, missing sentinel, determinism, explicit variable selection when the
-  canonical object has several.
+- Rendering: namespace, `nfields=1`, the mandatory `cpt:T` date list, block
+  count, `cpt:T`/`cpt:S`, dimensions, units, missing sentinel, determinism,
+  explicit variable selection when the canonical object has several.
 - Writing: atomic file creation, validation of the output, byte-for-byte
   equality with `render_cpt`.
-- Validator: wrong namespace, wrong `nfields`, missing tags, wrong row width,
-  non-numeric values, truncation, duplicate periods and missing file.
+- Validator: wrong namespace, wrong `nfields`, missing or mismatched date list,
+  missing tags, wrong row width, non-numeric values, truncation, duplicate
+  periods and missing file.
 
 ### Why
 

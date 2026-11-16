@@ -19,12 +19,12 @@ def write_forecast(
     *,
     init: str = "2026-11-01",
     longitude: tuple[float, ...] = (0.5, 1.5, 2.5, 3.5),
+    latitudes: tuple[float, ...] = (3.5, 2.5, 1.5),
     leads: tuple[int, ...] = (1, 2),
     units: str = "K",
     values: np.ndarray | None = None,
 ) -> Path:
     """Write a minimal ensemble_mean-style forecast file."""
-    latitudes = (3.5, 2.5, 1.5)
     shape = (1, len(leads), len(latitudes), len(longitude))
     if values is None:
         values = np.arange(np.prod(shape), dtype="float32").reshape(shape)
@@ -57,13 +57,13 @@ def write_hindcast(
     *,
     inits: tuple[str, ...] = ("1981-11-01", "1982-11-01"),
     longitude: tuple[float, ...] = (0.5, 1.5, 2.5, 3.5),
+    latitudes: tuple[float, ...] = (3.5, 2.5, 1.5),
     leads: tuple[int, ...] = (1, 2),
     members: tuple[int, ...] = (0, 1),
     units: str = "K",
     values: np.ndarray | None = None,
 ) -> Path:
     """Write a minimal monthly_mean-style hindcast file."""
-    latitudes = (3.5, 2.5, 1.5)
     shape = (
         len(members),
         len(inits),

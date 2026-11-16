@@ -138,15 +138,16 @@ class RenderTests(unittest.TestCase):
 
         self.assertEqual(lines[0], NAMESPACE)
         self.assertEqual(lines[1], "cpt:nfields=1")
-        self.assertIn("cpt:field=t2m", lines[2])
-        self.assertIn("cpt:S=2026-11", lines[2])
-        self.assertIn("cpt:T=2026-11", lines[2])
-        self.assertIn("cpt:nrow=2", lines[2])
-        self.assertIn("cpt:ncol=3", lines[2])
-        self.assertIn("cpt:units=C", lines[2])
-        self.assertIn("cpt:missing=-999", lines[2])
+        self.assertEqual(lines[2], "cpt:T 2026-11 2026-12")
+        self.assertIn("cpt:field=t2m", lines[3])
+        self.assertIn("cpt:S=2026-11", lines[3])
+        self.assertIn("cpt:T=2026-11", lines[3])
+        self.assertIn("cpt:nrow=2", lines[3])
+        self.assertIn("cpt:ncol=3", lines[3])
+        self.assertIn("cpt:units=C", lines[3])
+        self.assertIn("cpt:missing=-999", lines[3])
 
-        # Two blocks of 2 rows each, plus 2 header lines and 2 longitudes.
+        # Two blocks of 2 rows each, plus 3 header lines and 2 longitudes.
         blocks = [line for line in lines if line.startswith("cpt:field=")]
         self.assertEqual(len(blocks), 2)
         self.assertIn("cpt:T=2026-12", text)
@@ -227,22 +228,54 @@ class ValidatorTests(unittest.TestCase):
 
     def test_missing_required_tag(self) -> None:
         lines = list(self.lines)
-        lines[2] = lines[2].replace(" cpt:ncol=3,", "")
+        lines[3] = lines[3].replace(" cpt:ncol=3,", "")
         report = validate_text("\n".join(lines))
         self.assertFalse(report.valid)
 
     def test_wrong_row_width(self) -> None:
         lines = list(self.lines)
-        # The first data row follows the namespace, nfields, header, longitude.
-        lines[4] = "10.00 0.0000"
+        # The first data row follows the namespace, nfields, date list, header, longitude.
+        lines[5] = "10.00 0.0000"
         report = validate_text("\n".join(lines))
         self.assertFalse(report.valid)
 
     def test_non_numeric_value(self) -> None:
         lines = list(self.lines)
-        lines[4] = lines[4].replace("0.0000", "abc", 1)
+        lines[5] = lines[5].replace("0.0000", "abc", 1)
         report = validate_text("\n".join(lines))
         self.assertFalse(report.valid)
+
+    def test_missing_date_list_is_rejected(self) -> None:
+        lines = list(self.lines)
+        del lines[2]
+        report = validate_text("\n".join(lines))
+        self.assertFalse(report.valid)
+        self.assertIn("date-list", {issue.code for issue in report.issues})
+
+    def test_date_list_must_match_block_order(self) -> None:
+        lines = list(self.lines)
+        lines[2] = "cpt:T 2026-11 2027-01"
+        report = validate_text("\n".join(lines))
+        self.assertFalse(report.valid)
+        self.assertIn(
+            "date-list-mismatch", {issue.code for issue in report.issues}
+        )
+
+    def test_date_list_count_must_match_blocks(self) -> None:
+        lines = list(self.lines)
+        lines[2] = "cpt:T 2026-11"
+        report = validate_text("\n".join(lines))
+        self.assertFalse(report.valid)
+        self.assertIn("date-count", {issue.code for issue in report.issues})
+
+    def test_invalid_date_in_date_list(self) -> None:
+        lines = list(self.lines)
+        lines[2] = "cpt:T 2026-11 2026-13"
+        report = validate_text("\n".join(lines))
+        self.assertFalse(report.valid)
+        self.assertIn(
+            "date-list-period", {issue.code for issue in report.issues}
+        )
 
     def test_truncated_block(self) -> None:
         report = validate_text("\n".join(self.lines[:-1]))
