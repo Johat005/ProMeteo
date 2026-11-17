@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from prometeo import __version__
 from prometeo.canonical.build import build_canonical, combine_canonical
 from prometeo.canonical.dataset import CanonicalDataset
@@ -813,6 +815,14 @@ def _canonical_area_label(canonical: Any) -> str:
     return area_name((north, west, south, east))
 
 
+def _grid_signature(canonical: Any) -> tuple[np.ndarray, np.ndarray]:
+    """Return the canonical latitude and longitude arrays."""
+    return (
+        np.asarray(canonical.data["latitude"].values, dtype=float),
+        np.asarray(canonical.data["longitude"].values, dtype=float),
+    )
+
+
 def _convert_output_name(
     model: Any,
     variable: str,
@@ -1047,6 +1057,32 @@ def cmd_convert(args: argparse.Namespace) -> int:
                     "Confirme que la calibración X/Z es comparable.",
                 )
             )
+
+        # CPT+ requires X and Z to use exactly the same latitude/longitude grid.
+        if "hindcast" in needed_tuple and "forecast" in needed_tuple:
+            x_lat, x_lon = _grid_signature(canonicals["hindcast"])
+            z_lat, z_lon = _grid_signature(canonicals["forecast"])
+            if not (
+                np.array_equal(x_lat, z_lat)
+                and np.array_equal(x_lon, z_lon)
+            ):
+                report.add(
+                    finding_error(
+                        "GRID-XZ-MISMATCH",
+                        "convert",
+                        (
+                            "Las rejillas de X y Z no coinciden: "
+                            f"X={x_lat.size}x{x_lon.size} "
+                            f"(lat {x_lat[0]}..{x_lat[-1]}), "
+                            f"Z={z_lat.size}x{z_lon.size} "
+                            f"(lat {z_lat[0]}..{z_lat[-1]})."
+                        ),
+                        (
+                            "Use la misma --region para ambos productos y "
+                            "regenere X y Z con esta versión."
+                        ),
+                    )
+                )
 
         # Warn when the variable sets differ between products.
         if "hindcast" in needed_tuple and "forecast" in needed_tuple:

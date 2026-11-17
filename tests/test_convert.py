@@ -125,6 +125,43 @@ class ConvertCommandTests(unittest.TestCase):
             self.assertEqual(_first_data_latitude(x_path), "3.50")
             self.assertEqual(_first_data_latitude(z_path), "3.50")
 
+    def test_grid_mismatch_between_x_and_z_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hindcast = write_hindcast(
+                root / "hindcast.nc",
+                inits=("1981-11-01",),
+                leads=(1,),
+                latitudes=(3.5, 2.5, 1.5),
+            )
+            forecast = write_forecast(
+                root / "forecast.nc",
+                init="2026-11-01",
+                leads=(1,),
+                latitudes=(4.5, 3.5, 2.5),
+            )
+            out = root / "out"
+            code, stdout, stderr = run_cli(
+                [
+                    "convert",
+                    "--hindcast-file",
+                    str(hindcast),
+                    "--forecast-file",
+                    str(forecast),
+                    "--variables",
+                    "t2m",
+                    "--leads",
+                    "1",
+                    "--output-dir",
+                    str(out),
+                    "--json",
+                ]
+            )
+            self.assertEqual(code, 2, stderr)
+            payload = json.loads(stdout)
+            checks = [f["check_id"] for f in payload["findings"]]
+            self.assertIn("GRID-XZ-MISMATCH", checks)
+
     def test_convert_x_only(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
