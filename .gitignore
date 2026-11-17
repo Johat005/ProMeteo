@@ -27,6 +27,13 @@ output/**
 !output/.gitkeep
 logs/
 
+# Downloaded and converted data (never commit)
+*.nc
+*.nc.json
+*.nc.part
+*.cpt
+ecmwf-seas5/
+
 # OS
 .DS_Store
 Thumbs.db
